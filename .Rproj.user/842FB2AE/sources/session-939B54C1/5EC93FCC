@@ -1,0 +1,27 @@
+{
+    "id": "5EC93FCC",
+    "path": "~/Library/CloudStorage/OneDrive-UniversityofCalifornia,Davis/Documents/CTSC/ctsc/R/ctsc functions.R",
+    "project_path": "R/ctsc functions.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1666629443308.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "tempName": "Untitled1",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "1077,27",
+        "scrollLine": "1076"
+    },
+    "folds": "18|1|22|0|\n27|1|29|0|\n32|82|34|0|\n38|1|40|0|\n45|1|53|0|\n60|85|72|0|\n85|72|90|0|\n93|69|95|0|\n98|87|100|0|\n103|65|112|0|\n115|65|121|0|\n127|87|144|0|\n157|57|161|0|\n164|54|166|0|\n169|73|171|0|\n174|50|184|0|\n187|50|194|0|\n200|72|216|0|\n221|138|235|0|\n237|79|246|0|\n248|76|263|0|\n265|120|285|0|\n287|119|320|0|\n329|1|342|0|\n346|60|359|0|\n361|60|410|0|\n417|31|421|0|\n429|97|459|0|\n463|97|492|0|\n497|98|527|0|\n529|93|595|0|\n599|96|624|0|\n630|46|641|0|\n643|68|673|0|\n678|51|716|0|\n720|116|747|0|\n750|52|792|0|\n797|108|861|0|\n865|79|877|0|\n880|160|927|0|\n",
+    "lastKnownWriteTime": 1666629873,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1666629873703,
+    "read_only": false,
+    "read_only_alternatives": []
+}
