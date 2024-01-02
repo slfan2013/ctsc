@@ -878,7 +878,7 @@ bootstrap <- function(pos.values,neg.values,prcurve.function,replicates=1000) {
 }
 
 
-get_performance_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE, truth = data_BED_PLANNING_training$ADMIT_FLAG=="Admitted", thresholds = 50){
+get_performance_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE, truth = data_BED_PLANNING_training$ADMIT_FLAG=="Admitted", thresholds = 50, round = TRUE){
   # pred <- prediction(score, true)
   # cutoffs = pred@cutoffs[[1]]
   # sens <- performance(pred, "sens")@y.values[[1]]
@@ -914,8 +914,21 @@ get_performance_measures = function(score = data_BED_PLANNING_training$TOTAL_SCO
 
     youden = sens + spec - 1
     youden[is.nan(youden)] = NA
+
+
+    if(round){
+
+      sens = round(sens, 3)
+      spec = round(spec, 3)
+      balanced_accuracy = round(balanced_accuracy, 3)
+      accuracy = round(accuracy, 3)
+      f1_score = round(f1_score, 3)
+      youden = round(youden, 3)
+
+    }
+
     return(
-      c(sens = sens, spec = spec, balanced_accuracy = balanced_accuracy, accuracy = accuracy, ppv = ppv, npv = npv, f1_score = f1_score, youden = youden)
+      c(sens = sens, spec = spec, balanced_accuracy = balanced_accuracy, accuracy = accuracy, ppv = ppv, npv = npv, f1_score = f1_score, youden = youden, TNs = TNs, TPs = TPs, FPs = FPs, FNs = FNs, Ps = TPs + FNs, Ns = TNs + FPs)
     )
   })))
 
@@ -934,70 +947,145 @@ get_performance_measures = function(score = data_BED_PLANNING_training$TOTAL_SCO
 all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
                         truth = data_BED_PLANNING_training$ADMIT_FLAG == 'Admitted',
                         thresholds = 1:100,
-                        n_Boot = 1000){
+                        n_Boot = 1000,
+                        use_Boot = FALSE,
+                        BootID = 1:length(score),
+                        confidence_level = 0.95){
+
+  alpha = 1 - confidence_level
+
+  pacman::p_load(ROCR)
 
   # score = data_BED_PLANNING_training$TOTAL_SCORE
   # truth = data_BED_PLANNING_training$ADMIT_FLAG == 'Admitted'
   # thresholds = 1:100
   # n_Boot = 1000
-  source("supporting functions.R")
+  # source("supporting functions.R")
+
 
 
   # get sens spec balanced_accuracy accuracy ppv npv f1_score youden
   performance_measures = get_performance_measures(
     score,
     truth,
-    thresholds
+    thresholds,
+    round = FALSE
   )
-  sample_indexes = list()
-  for(b in 1:n_Boot){
-    set.seed(b)
-    sample_indexes[[b]] = sample(1:length(score), replace = T)
-  }
-  # get performance for each bootstrap sample
-  performance_measures_boot = list()
-  for(b in 1:n_Boot){
-    performance_measures_boot[[b]] =
-      get_performance_measures(score[sample_indexes[[b]]], truth[sample_indexes[[b]]], thresholds)
-  }
-  # calculate the 2.5% and 97.5% confidence bounds
-  measurements = colnames(performance_measures)
+
   performance_measurements_lower_bound = performance_measurements_upper_bound = list()
-  for(m in 1:length(measurements)){
-    measure = measurements[m]
-    measure_per_threshold_for_each_boot = sapply(performance_measures_boot, function(x){
-      unlist(x[[measure]])
-    })
+  if(!use_Boot){
+    # https://www.ncss.com/wp-content/themes/ncss/pdf/Procedures/PASS/Confidence_Intervals_for_One-Sample_Sensitivity.pdf
+    var_sens = performance_measures$sens * (1 - performance_measures$sens) / performance_measures$Ps
+    var_spec = performance_measures$spec * (1 - performance_measures$spec) / performance_measures$Ns
 
-    performance_measurements_lower_bound[[measure]] = apply(measure_per_threshold_for_each_boot, 1, function(x){
-      quantile(x, 0.025, na.rm = TRUE)
-    })
+    z = qnorm(1-alpha/2)
+    performance_measurements_lower_bound$sens = pmax(0,performance_measures$sens - z * sqrt(var_sens))
+    performance_measurements_lower_bound$spec = pmax(0,performance_measures$spec - z * sqrt(var_spec))
+    performance_measurements_lower_bound$ppv = pmax(0, performance_measures$ppv - z * sqrt(performance_measures$ppv * (1 - performance_measures$ppv) / (performance_measures$TPs + performance_measures$FPs)))
+    performance_measurements_lower_bound$npv = pmax(0, performance_measures$npv - z * sqrt(performance_measures$npv * (1 - performance_measures$npv) / (performance_measures$TNs + performance_measures$FNs)))
 
-    performance_measurements_upper_bound[[measure]] = apply(measure_per_threshold_for_each_boot, 1, function(x){
-      quantile(x, 0.975, na.rm = TRUE)
-    })
 
+
+
+    performance_measurements_upper_bound$sens = pmin(1, performance_measures$sens + z * sqrt(var_sens))
+    performance_measurements_upper_bound$spec = pmin(1, performance_measures$spec + z * sqrt(var_spec))
+    performance_measurements_upper_bound$ppv = pmin(1, performance_measures$ppv + z * sqrt(performance_measures$ppv * (1 - performance_measures$ppv) / (performance_measures$TPs + performance_measures$FPs)))
+    performance_measurements_upper_bound$npv = pmin(1, performance_measures$npv + z * sqrt(performance_measures$npv * (1 - performance_measures$npv) / (performance_measures$TNs + performance_measures$FNs)))
+
+
+
+    # https://stats.stackexchange.com/questions/475052/calculate-the-confidence-interval-of-a-balanced-accuracy-by-taking-the-mean-of-t
+    performance_measurements_lower_bound$balanced_accuracy = pmax(0,performance_measures$balanced_accuracy - z * sqrt((var_sens + var_spec)/4))
+    performance_measurements_upper_bound$balanced_accuracy = pmin(1, performance_measures$balanced_accuracy + z * sqrt((var_sens + var_spec)/4))
+
+
+    performance_measurements_lower_bound$accuracy = pmax(0,performance_measures$accuracy - z * sqrt(performance_measures$accuracy * (1-performance_measures$accuracy)/(performance_measures$TNs[1] + performance_measures$TPs[1] + performance_measures$FNs[1] + performance_measures$FPs[1])))
+    performance_measurements_upper_bound$accuracy = pmin(1,performance_measures$accuracy + z * sqrt(performance_measures$accuracy * (1-performance_measures$accuracy)/(performance_measures$TNs[1] + performance_measures$TPs[1] + performance_measures$FNs[1] + performance_measures$FPs[1])))
+
+
+
+
+
+  }else{
+    sample_indexes = list()
+    for(b in 1:n_Boot){
+      set.seed(b)
+
+      sample_indexes[[b]] = sample(unique(BootID), replace = TRUE)
+
+      # sample_indexes[[b]] = sample(1:length(score), replace = T)
+    }
+    # get performance for each bootstrap sample
+    performance_measures_boot = list()
+    for(b in 1:n_Boot){
+      # print(b/n_Boot)
+      performance_measures_boot[[b]] =
+        get_performance_measures(score[BootID %in% sample_indexes[[b]]], truth[BootID %in% sample_indexes[[b]]], thresholds, round = FALSE)
+    }
+    # calculate the 2.5% and 97.5% confidence bounds
+    measurements = colnames(performance_measures)
+    for(m in 1:length(measurements)){
+      measure = measurements[m]
+      measure_per_threshold_for_each_boot = sapply(performance_measures_boot, function(x){
+        unlist(x[[measure]])
+      })
+
+      performance_measurements_lower_bound[[measure]] = apply(measure_per_threshold_for_each_boot, 1, function(x){
+        quantile(x, alpha/2, na.rm = TRUE)
+      })
+
+      performance_measurements_upper_bound[[measure]] = apply(measure_per_threshold_for_each_boot, 1, function(x){
+        quantile(x, 1-alpha/2, na.rm = TRUE)
+      })
+
+    }
   }
+
+
+
   # calculate AUC and confidence bounds
   auc = performance(prediction(score, truth), "auc")@y.values[[1]]
-  auc_boot = c()
-  for(b in 1:n_Boot){
-    auc_boot[b] = performance(prediction(score[sample_indexes[[b]]], truth[sample_indexes[[b]]]), "auc")@y.values[[1]]
+
+  if(!use_Boot){
+    ciAUC = pROC::ci(pROC::roc(truth, score), conf.level = confidence_level)
+    if(auc<0.5){ # this performance() function does not distinguish control vs case. However, pROC::ci does. By doing this, pROC::ci always returns greater than 0.5. This part is to correct this.
+      auc_lower_bound = 1 - as.numeric(ciAUC)[3]
+      auc_upper_bound= 1 - as.numeric(ciAUC)[1]
+    }else{
+      auc_lower_bound = as.numeric(ciAUC)[1]
+      auc_upper_bound= as.numeric(ciAUC)[3]
+    }
+
+  }else{
+    auc_boot = c()
+    for(b in 1:n_Boot){
+      auc_boot[b] = performance(prediction(score[BootID %in% sample_indexes[[b]]], truth[BootID %in% sample_indexes[[b]]]), "auc")@y.values[[1]]
+    }
+    auc_lower_bound = quantile(auc_boot, alpha/2)
+    auc_upper_bound = quantile(auc_boot, 1-alpha/2)
   }
-  auc_lower_bound = quantile(auc_boot, 0.025)
-  auc_upper_bound = quantile(auc_boot, 0.975)
+
+
 
   # calculate PR auc and confidence bounds
-  pr = prcurve.ap(score[truth==1], score[truth==0])$area
-  pr_boot = c()
-  for(b in 1:n_Boot){
-    pr_boot[b] = prcurve.ap(score[sample_indexes[[b]]][truth[sample_indexes[[b]]]==1], score[sample_indexes[[b]]][truth[sample_indexes[[b]]]==0])$area
+  pr_temp = prcurve.ap(score[truth==1], score[truth==0])
+  pr = pr_temp$area
+  if(!use_Boot){
+    ciPR = pr_temp
+    pr_lower_bound = ciPR$conf.int[1]
+    pr_upper_bound = ciPR$conf.int[2]
+  }else{
+    pr_boot = c()
+    for(b in 1:n_Boot){
+      pr_boot[b] = prcurve.ap(score[BootID %in% sample_indexes[[b]]][truth[BootID %in% sample_indexes[[b]]]==1], score[BootID %in% sample_indexes[[b]]][truth[BootID %in% sample_indexes[[b]]]==0])$area
+    }
+    pr_lower_bound = quantile(pr_boot, alpha/2)
+    pr_upper_bound = quantile(pr_boot, 1-alpha/2)
   }
-  pr_lower_bound = quantile(pr_boot, 0.025)
-  pr_upper_bound = quantile(pr_boot, 0.975)
+
 
   # calibration curve
-  score_bin = cut(score, breaks = seq(0,100,by = 10))
+  score_bin = cut(score, breaks = thresholds)
   percentage_of_truth_in_each_bin = by(truth, score_bin, function(x){sum(x)/length(x)})
 
 
@@ -1020,9 +1108,11 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
   ))
 }
 
-from_measures_to_table = function(measures = all_measures, caption = "Table 2. Sensitivity, specificity, balanced accuracy and accuracy"){
+detach_package = function(package = "ctsc"){
+  detach(paste0("package:",package), unload=TRUE)
+}
 
-  pacman::p_load(dplyr, kableExtra)
+from_measures_to_table = function(measures = all_measures, caption = "Performance Measurements using Different Threshold", include_TP_TF_FN_FP =FALSE){pacman::p_load(dplyr, kableExtra)
 
   thresholds = measures$thresholds
 
@@ -1042,49 +1132,159 @@ from_measures_to_table = function(measures = all_measures, caption = "Table 2. S
   npv_ci_low = measures$performance_measurements_lower_bound$npv
   npv_ci_up = measures$performance_measurements_upper_bound$npv
 
+  if(!is.null(measures$performance_measurements_lower_bound$balanced_accuracy)){
+    balanced_accuracy = measures$performance_measures$balanced_accuracy
+    balanced_accuracy_ci_low = measures$performance_measurements_lower_bound$balanced_accuracy
+    balanced_accuracy_ci_up = measures$performance_measurements_upper_bound$balanced_accuracy
+  }else{
+    balanced_accuracy = 0
+    balanced_accuracy_ci_low = 0
+    balanced_accuracy_ci_up = 0
+  }
+  if(!is.null(measures$performance_measurements_lower_bound$accuracy)){
+    accuracy = measures$performance_measures$accuracy
+    accuracy_ci_low = measures$performance_measurements_lower_bound$accuracy
+    accuracy_ci_up = measures$performance_measurements_upper_bound$accuracy
+  }else{
+    accuracy = 0
+    accuracy_ci_low = 0
+    accuracy_ci_up = 0
+  }
 
 
 
-  balanced_accuracy = measures$performance_measures$balanced_accuracy
-  balanced_accuracy_ci_low = measures$performance_measurements_lower_bound$balanced_accuracy
-  balanced_accuracy_ci_up = measures$performance_measurements_upper_bound$balanced_accuracy
+  TNs = measures$performance_measures$TNs
+  TPs = measures$performance_measures$TPs
+  FNs = measures$performance_measures$FNs
+  FPs = measures$performance_measures$FPs
 
-  accuracy = measures$performance_measures$accuracy
-  accuracy_ci_low = measures$performance_measurements_lower_bound$accuracy
-  accuracy_ci_up = measures$performance_measurements_upper_bound$accuracy
-
-  acc = measures$auc
-  accuracy_ci_low = measures$auc_lower_bound
-  accuracy_ci_up = measures$auc_upper_bound
+  # auc = measures$auc
+  # auc_ci_low = measures$auc_lower_bound
+  # auc_ci_up = measures$auc_upper_bound
 
 
+  if(include_TP_TF_FN_FP){
+    result = data.frame(thresholds,
+                        TPs = TPs,
+                        TNs = TNs,
+                        FPs = FPs,
+                        FNs = FNs,
+                        sens = round(sens, digits = 3),
+                        sens_ci = paste0("[", round(sens_ci_low, digits = 3), ", ", round(sens_ci_up, digits = 3), "]"),
+                        spec = round(spec, digits = 3),
+                        spec_ci = paste0("[", round(spec_ci_low, digits = 3), ", ", round(spec_ci_up, digits = 3), "]"),
+                        ppv = round(ppv, digits = 3),
+                        ppv_ci = paste0("[", round(ppv_ci_low, digits = 3), ", ", round(ppv_ci_up, digits = 3), "]"),
+                        npv = round(npv, digits = 3),
+                        npv_ci = paste0("[", round(npv_ci_low, digits = 3), ", ", round(npv_ci_up, digits = 3), "]"),
+                        bal_acc = round(balanced_accuracy, digits = 3),
+                        bal_acc_ci = paste0("[", round(balanced_accuracy_ci_low, digits = 3), ", ", round(balanced_accuracy_ci_up, digits = 3), "]"),
+                        acc = round(accuracy, digits = 3),
+                        acc_ci = paste0("[", round(accuracy_ci_low, digits = 3), ", ", round(accuracy_ci_up, digits = 3), "]"))
+
+    colnames(result) = c("Thresholds",
+                         "True Positive",
+                         "True Negative",
+                         "False Positive",
+                         "False Negative",
+                         "Sensitivity",
+                         "Sensitivity CI",
+                         "Specificity",
+                         "Specificity CI",
+                         "Positive Predictive Value",
+                         "Positive Predictive Value CI",
+                         "Negative Predictive Value",
+                         "Negative Predictive Value CI",
+                         "Balanced Accuracy",
+                         "Balanced Accuracy CI",
+                         "Accuracy",
+                         "Accuracy CI")
+
+    result = result %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F)
 
 
-  return(data.frame(thresholds, sens = round(sens, digits = 3),
-                    sens_ci = paste0("[", round(sens_ci_low, digits = 3), ", ", round(sens_ci_up, digits = 3), "]"),
-                    spec = round(spec, digits = 3),
-                    spec_ci = paste0("[", round(spec_ci_low, digits = 3), ", ", round(spec_ci_up, digits = 3), "]"),
-                    ppv = round(ppv, digits = 3),
-                    ppv_ci = paste0("[", round(ppv_ci_low, digits = 3), ", ", round(ppv_ci_up, digits = 3), "]"),
-                    npv = round(npv, digits = 3),
-                    npv_ci = paste0("[", round(npv_ci_low, digits = 3), ", ", round(npv_ci_up, digits = 3), "]"),
-                    bal_acc = round(balanced_accuracy, digits = 3),
-                    bal_acc_ci = paste0("[", round(balanced_accuracy_ci_low, digits = 3), ", ", round(balanced_accuracy_ci_up, digits = 3), "]"),
-                    acc = round(accuracy, digits = 3),
-                    acc_ci = paste0("[", round(accuracy_ci_low, digits = 3), ", ", round(accuracy_ci_up, digits = 3), "]")) %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F))
+
+
+
+  }else{
+    result = data.frame(thresholds, sens = round(sens, digits = 3),
+                        sens_ci = paste0("[", round(sens_ci_low, digits = 3), ", ", round(sens_ci_up, digits = 3), "]"),
+                        spec = round(spec, digits = 3),
+                        spec_ci = paste0("[", round(spec_ci_low, digits = 3), ", ", round(spec_ci_up, digits = 3), "]"),
+                        ppv = round(ppv, digits = 3),
+                        ppv_ci = paste0("[", round(ppv_ci_low, digits = 3), ", ", round(ppv_ci_up, digits = 3), "]"),
+                        npv = round(npv, digits = 3),
+                        npv_ci = paste0("[", round(npv_ci_low, digits = 3), ", ", round(npv_ci_up, digits = 3), "]"),
+                        bal_acc = round(balanced_accuracy, digits = 3),
+                        bal_acc_ci = paste0("[", round(balanced_accuracy_ci_low, digits = 3), ", ", round(balanced_accuracy_ci_up, digits = 3), "]"),
+                        acc = round(accuracy, digits = 3),
+                        acc_ci = paste0("[", round(accuracy_ci_low, digits = 3), ", ", round(accuracy_ci_up, digits = 3), "]"))
+
+
+    colnames(result) = c("Thresholds",
+                         "Sensitivity",
+                         "Sensitivity CI",
+                         "Specificity",
+                         "Specificity CI",
+                         "Positive Predictive Value",
+                         "Positive Predictive Value CI",
+                         "Negative Predictive Value",
+                         "Negative Predictive Value CI",
+                         "Balanced Accuracy",
+                         "Balanced Accuracy CI",
+                         "Accuracy",
+                         "Accuracy CI")
+
+    result = result %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F)
+  }
+
+
+
+
+  # if(!is.null(measures$performance_measurements_lower_bound$balanced_accuracy)){
+  #   result$bal_acc = result$bal_acc_ci = "-"
+  # }
+  #
+  # if(!is.null(measures$performance_measurements_lower_bound$accuracy)){
+  #   result$acc = result$acc_ci = "-"
+  # }
+
+  return(result)
+
+
+
+
+
 }
 
 
 from_any_table_to_rmarkdown = function(table, caption = ""){
   pacman::p_load(kableExtra, dplyr)
-  as.data.frame.matrix(table) %>%
+  as.data.frame(table) %>%
     kbl(caption = caption) %>%
     kable_paper("hover", full_width = F)
 }
 
+from_any_data_frame_to_rmarkdown_using_DT = function(df, caption = "", pageLength = 20){
+  # pacman::p_load(kableExtra, dplyr)
+  # as.data.frame(table) %>%
+  #   kbl(caption = caption) %>%
+  #   kable_paper("hover", full_width = F)
+
+  if(!identical(sum(abs(as.numeric(df[[1]]) - 1:nrow(df))),0)){
+
+    df = cbind(data.frame(o = 1:nrow(df)), df)
+
+  }
+
+  DT::datatable(df, rownames = FALSE, options = list(
+    pageLength = pageLength
+  ), caption = caption)
+}
 
 
-from_measure_to_calibration_plot = function(measures = BED_PLANNING_training_measures, title = "Calibration Curve - training"){
+
+from_measure_to_calibration_plot = function(measures = BED_PLANNING_training_measures, title = "Calibration Curve"){
   pacman::p_load(ggplot2)
   truth_in_each_bin = as.numeric(measures$percentage_of_truth_in_each_bin)
   truth_in_each_bin[is.na(truth_in_each_bin)] = 0
@@ -1100,9 +1300,9 @@ from_measure_to_calibration_plot = function(measures = BED_PLANNING_training_mea
 
 }
 
-from_measure_to_ROC_curve = function(measures = BED_PLANNING_training_measures, title = "Training set ROC Curve"){
+from_measure_to_ROC_curve = function(measures = BED_PLANNING_training_measures, title = "ROC Curve", legend = TRUE, legend_position = 'bottom', xlab = '1 - Specificity', ylab = 'Sensitivity'){
 
-
+  pacman::p_load(ggplot2)
 
   df = data.frame(x = 1-measures$performance_measures$spec,
                   y = c(measures$performance_measures$sens,
@@ -1120,18 +1320,18 @@ from_measure_to_ROC_curve = function(measures = BED_PLANNING_training_measures, 
     ylim(0,1)+
     xlim(0,1)+
     geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), size = 0.1, linetype = "dashed")+
-    theme(legend.position = 'bottom')+
-    labs(title = title)+
-    annotate(geom="text", x=0.8, y=0.1, label=paste0("AUC = ",round(measures$auc,3)," (",round(measures$auc_lower_bound,3),", ",round(measures$auc_upper_bound,3),")"),
-             color="red")
+    labs(title = title, x = xlab, y = ylab)+
+    annotate(geom="text", x=0.5, y=0.1, label=paste0("AUC = ",round(measures$auc,3)," (",round(measures$auc_lower_bound,3),", ",round(measures$auc_upper_bound,3),")"),
+             color="red") +
+    theme(legend.position=ifelse(legend, legend_position,"none"))
 
 
 }
 
 
-from_measure_to_PR_curve = function(measures = BED_PLANNING_training_measures, title = "Training set PR Curve"){
+from_measure_to_PR_curve = function(measures = BED_PLANNING_training_measures, title = "PR Curve", legend = TRUE, legend_position = 'bottom', xlab = 'Recall', ylab = 'Precision'){
 
-
+  pacman::p_load(ggplot2)
 
   df = data.frame(x = measures$performance_measures$sens,
                   y = c(measures$performance_measures$ppv,
@@ -1149,13 +1349,14 @@ from_measure_to_PR_curve = function(measures = BED_PLANNING_training_measures, t
     ylim(0,1)+
     xlim(0,1)+
     # geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), size = 0.1, linetype = "dashed")+
-    theme(legend.position = 'bottom')+
-    labs(title = title)+
-    annotate(geom="text", x=0.8, y=0.1, label=paste0("AUC = ",round(measures$pr,3)," (",round(measures$pr_lower_bound,3),", ",round(measures$pr_upper_bound,3),")"),
-             color="red")
+    labs(title = title, x = xlab, y = ylab)+
+    annotate(geom="text", x=0.5, y=0.1, label=paste0("AUC = ",round(measures$pr,3)," (",round(measures$pr_lower_bound,3),", ",round(measures$pr_upper_bound,3),")"),
+             color="red")+
+    theme(legend.position=ifelse(legend, legend_position,"none"))
 
 
 }
+
 
 
 
@@ -1248,3 +1449,63 @@ read_data  = function(path = "D:\\Jennly Zhang MetaboliteSD_ver03\\Raw_Phenotype
   return(list(p = p, f = f, e = e, e_matrix = e_matrix,e_cat_matrix = e_cat_matrix))
 }
 
+
+summary_stat = function(x, digits = 2, include_5_and_95 = FALSE){
+
+  mean = mean(x, na.rm = TRUE)
+  sd = sd(x, na.rm = TRUE)
+  min =  min(x, na.rm = TRUE)
+
+  first_quantile = quantile(x, .25, na.rm = TRUE)
+  median = median(x, na.rm = TRUE)
+  third_quantile = quantile(x, .75, na.rm = TRUE)
+  max =  max(x, na.rm = TRUE)
+  range = max - min
+
+
+
+
+
+  if(include_5_and_95){
+    five_perc = quantile(x, .05, na.rm = TRUE)
+    ninty_five_perc = quantile(x, .95, na.rm = TRUE)
+
+    result = round(c(Mean = mean, SD = sd, Min = min, "5th Quantile" = five_perc, "25th Quantile" = first_quantile, Median = median, "75th Quantile" = third_quantile, "95th Quantile" = ninty_five_perc, Max = max, Range = range), 2)
+
+  }else{
+    result = round(c(Mean = mean, SD = sd, Min = min, "25th Quantile" = first_quantile, Median = median, "75th Quantile" = third_quantile, Max = max, Range = range), 2)
+  }
+
+  names(result) = c("Mean", "SD", "Min", "25th Quantile", "Median", "75th Quantile", "Max", "Range")
+
+  return(result)
+}
+
+
+
+
+
+table_two_way_with_sum = function(x,y, x_name = "", y_name = ""){
+  executable_text = paste0("table(",ifelse(x_name=="", "x",paste0(x_name, " = x")),",",ifelse(y_name=="", "y)",paste0(y_name, " = y)")))
+  tbl = eval(parse(text = executable_text))
+
+  value = as.numeric(tbl)
+  matrix = matrix(value, nrow = nrow(tbl))
+  matrix = rbind(matrix, colSums(matrix))
+  matrix = cbind(matrix, rowSums(matrix))
+  data.frame = as.data.frame(matrix, check.names = F)
+
+  rownames(data.frame) = c(paste0(ifelse(x_name=="", "", paste0(x_name, " - ")), rownames(tbl)), "Sum")
+  colnames(data.frame) = c(paste0(ifelse(y_name=="", "", paste0(y_name, " - ")), colnames(tbl)), "Sum")
+
+  return(data.frame)
+}
+
+rmarkdowncolortext <- function(x, color) {
+  if (knitr::is_latex_output()) {
+    sprintf("\\textcolor{%s}{%s}", color, x)
+  } else if (knitr::is_html_output()) {
+    sprintf("<span style='color: %s;'>%s</span>", color,
+            x)
+  } else x
+}
