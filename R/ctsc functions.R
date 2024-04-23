@@ -1112,7 +1112,9 @@ detach_package = function(package = "ctsc"){
   detach(paste0("package:",package), unload=TRUE)
 }
 
-from_measures_to_table = function(measures = all_measures, caption = "Performance Measurements using Different Threshold", include_TP_TF_FN_FP =FALSE){pacman::p_load(dplyr, kableExtra)
+from_measures_to_table = function(measures = all_measures, caption = "Performance Measurements using Different Threshold", include_TP_TF_FN_FP =FALSE){
+
+  pacman::p_load(dplyr, kableExtra)
 
   thresholds = measures$thresholds
 
@@ -1461,9 +1463,6 @@ summary_stat = function(x, digits = 2, include_5_and_95 = FALSE){
   third_quantile = quantile(x, .75, na.rm = TRUE)
   max =  max(x, na.rm = TRUE)
   range = max - min
-
-
-
 
 
   if(include_5_and_95){
