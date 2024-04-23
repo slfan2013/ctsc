@@ -1017,10 +1017,19 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
     }
     # get performance for each bootstrap sample
     performance_measures_boot = list()
+
+
     for(b in 1:n_Boot){
       # print(b/n_Boot)
+
+      boot_score = boot_truth = c()
+      for(s in 1:length(sample_indexes[[b]])){
+        boot_score = c(boot_score, score[BootID %in% sample_indexes[[b]][s]])
+        boot_truth = c(boot_truth, truth[BootID %in% sample_indexes[[b]][s]])
+      }
+
       performance_measures_boot[[b]] =
-        get_performance_measures(score[BootID %in% sample_indexes[[b]]], truth[BootID %in% sample_indexes[[b]]], thresholds, round = FALSE)
+        get_performance_measures(boot_score, boot_truth, thresholds, round = FALSE)
     }
     # calculate the 2.5% and 97.5% confidence bounds
     measurements = colnames(performance_measures)
