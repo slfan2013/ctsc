@@ -878,6 +878,30 @@ bootstrap <- function(pos.values,neg.values,prcurve.function,replicates=1000) {
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 get_performance_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE, truth = data_BED_PLANNING_training$ADMIT_FLAG=="Admitted", thresholds = 50, round = TRUE){
   # pred <- prediction(score, true)
   # cutoffs = pred@cutoffs[[1]]
@@ -1018,7 +1042,7 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
     # get performance for each bootstrap sample
     performance_measures_boot = list()
 
-
+    boot_scores = boot_truths = list()
     for(b in 1:n_Boot){
       # print(b/n_Boot)
 
@@ -1027,6 +1051,8 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
         boot_score = c(boot_score, score[BootID %in% sample_indexes[[b]][s]])
         boot_truth = c(boot_truth, truth[BootID %in% sample_indexes[[b]][s]])
       }
+      boot_scores[[b]] = boot_score
+      boot_truths[[b]] = boot_truth
 
       performance_measures_boot[[b]] =
         get_performance_measures(boot_score, boot_truth, thresholds, round = FALSE)
@@ -1067,8 +1093,9 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
 
   }else{
     auc_boot = c()
+
     for(b in 1:n_Boot){
-      auc_boot[b] = performance(prediction(score[BootID %in% sample_indexes[[b]]], truth[BootID %in% sample_indexes[[b]]]), "auc")@y.values[[1]]
+      auc_boot[b] = performance(prediction(boot_scores[[b]], boot_truths[[b]]), "auc")@y.values[[1]]
     }
     auc_lower_bound = quantile(auc_boot, alpha/2)
     auc_upper_bound = quantile(auc_boot, 1-alpha/2)
@@ -1086,7 +1113,7 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
   }else{
     pr_boot = c()
     for(b in 1:n_Boot){
-      pr_boot[b] = prcurve.ap(score[BootID %in% sample_indexes[[b]]][truth[BootID %in% sample_indexes[[b]]]==1], score[BootID %in% sample_indexes[[b]]][truth[BootID %in% sample_indexes[[b]]]==0])$area
+      pr_boot[b] = prcurve.ap(boot_scores[[b]][boot_truths[[b]]==1], boot_scores[[b]][boot_truths[[b]]==0])$area
     }
     pr_lower_bound = quantile(pr_boot, alpha/2)
     pr_upper_bound = quantile(pr_boot, 1-alpha/2)
@@ -1118,10 +1145,25 @@ all_measures = function(score = data_BED_PLANNING_training$TOTAL_SCORE,
 }
 
 detach_package = function(package = "ctsc"){
-  detach(paste0("package:",package), unload=TRUE)
+
+  detach(paste0("package:",package), unload=TRUE, character.only = TRUE)
+
+
+
 }
 
-from_measures_to_table = function(measures = all_measures, caption = "Performance Measurements using Different Threshold", include_TP_TF_FN_FP =FALSE){
+from_measures_to_data_frame = function(measures = all_measures,
+                                  include_threholds = TRUE,
+                                  include_true_positive = FALSE,
+                                  include_true_negative = FALSE,
+                                  include_false_positive = FALSE,
+                                  include_false_negative = FALSE,
+                                  include_sensitivity = TRUE,
+                                  include_specificity = TRUE,
+                                  include_positive_predictive_value = TRUE,
+                                  include_negative_predictive_value = TRUE,
+                                  include_balanced_accuracy = TRUE,
+                                  include_accuracy = TRUE){
 
   pacman::p_load(dplyr, kableExtra)
 
@@ -1173,100 +1215,123 @@ from_measures_to_table = function(measures = all_measures, caption = "Performanc
   # auc_ci_low = measures$auc_lower_bound
   # auc_ci_up = measures$auc_upper_bound
 
+  result = data.frame(thresholds,
+                      TPs = TPs,
+                      TNs = TNs,
+                      FPs = FPs,
+                      FNs = FNs,
+                      sens = round(sens, digits = 3),
+                      sens_ci = paste0("[", round(sens_ci_low, digits = 3), ", ", round(sens_ci_up, digits = 3), "]"),
+                      spec = round(spec, digits = 3),
+                      spec_ci = paste0("[", round(spec_ci_low, digits = 3), ", ", round(spec_ci_up, digits = 3), "]"),
+                      ppv = round(ppv, digits = 3),
+                      ppv_ci = paste0("[", round(ppv_ci_low, digits = 3), ", ", round(ppv_ci_up, digits = 3), "]"),
+                      npv = round(npv, digits = 3),
+                      npv_ci = paste0("[", round(npv_ci_low, digits = 3), ", ", round(npv_ci_up, digits = 3), "]"),
+                      bal_acc = round(balanced_accuracy, digits = 3),
+                      bal_acc_ci = paste0("[", round(balanced_accuracy_ci_low, digits = 3), ", ", round(balanced_accuracy_ci_up, digits = 3), "]"),
+                      acc = round(accuracy, digits = 3),
+                      acc_ci = paste0("[", round(accuracy_ci_low, digits = 3), ", ", round(accuracy_ci_up, digits = 3), "]"))
 
-  if(include_TP_TF_FN_FP){
-    result = data.frame(thresholds,
-                        TPs = TPs,
-                        TNs = TNs,
-                        FPs = FPs,
-                        FNs = FNs,
-                        sens = round(sens, digits = 3),
-                        sens_ci = paste0("[", round(sens_ci_low, digits = 3), ", ", round(sens_ci_up, digits = 3), "]"),
-                        spec = round(spec, digits = 3),
-                        spec_ci = paste0("[", round(spec_ci_low, digits = 3), ", ", round(spec_ci_up, digits = 3), "]"),
-                        ppv = round(ppv, digits = 3),
-                        ppv_ci = paste0("[", round(ppv_ci_low, digits = 3), ", ", round(ppv_ci_up, digits = 3), "]"),
-                        npv = round(npv, digits = 3),
-                        npv_ci = paste0("[", round(npv_ci_low, digits = 3), ", ", round(npv_ci_up, digits = 3), "]"),
-                        bal_acc = round(balanced_accuracy, digits = 3),
-                        bal_acc_ci = paste0("[", round(balanced_accuracy_ci_low, digits = 3), ", ", round(balanced_accuracy_ci_up, digits = 3), "]"),
-                        acc = round(accuracy, digits = 3),
-                        acc_ci = paste0("[", round(accuracy_ci_low, digits = 3), ", ", round(accuracy_ci_up, digits = 3), "]"))
-
-    colnames(result) = c("Thresholds",
-                         "True Positive",
-                         "True Negative",
-                         "False Positive",
-                         "False Negative",
-                         "Sensitivity",
-                         "Sensitivity CI",
-                         "Specificity",
-                         "Specificity CI",
-                         "Positive Predictive Value",
-                         "Positive Predictive Value CI",
-                         "Negative Predictive Value",
-                         "Negative Predictive Value CI",
-                         "Balanced Accuracy",
-                         "Balanced Accuracy CI",
-                         "Accuracy",
-                         "Accuracy CI")
-
-    result = result %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F)
+  colnames(result) = c("Thresholds",
+                       "True Positive",
+                       "True Negative",
+                       "False Positive",
+                       "False Negative",
+                       "Sensitivity",
+                       "Sensitivity CI",
+                       "Specificity",
+                       "Specificity CI",
+                       "Positive Predictive Value",
+                       "Positive Predictive Value CI",
+                       "Negative Predictive Value",
+                       "Negative Predictive Value CI",
+                       "Balanced Accuracy",
+                       "Balanced Accuracy CI",
+                       "Accuracy",
+                       "Accuracy CI")
 
 
-
-
-
-  }else{
-    result = data.frame(thresholds, sens = round(sens, digits = 3),
-                        sens_ci = paste0("[", round(sens_ci_low, digits = 3), ", ", round(sens_ci_up, digits = 3), "]"),
-                        spec = round(spec, digits = 3),
-                        spec_ci = paste0("[", round(spec_ci_low, digits = 3), ", ", round(spec_ci_up, digits = 3), "]"),
-                        ppv = round(ppv, digits = 3),
-                        ppv_ci = paste0("[", round(ppv_ci_low, digits = 3), ", ", round(ppv_ci_up, digits = 3), "]"),
-                        npv = round(npv, digits = 3),
-                        npv_ci = paste0("[", round(npv_ci_low, digits = 3), ", ", round(npv_ci_up, digits = 3), "]"),
-                        bal_acc = round(balanced_accuracy, digits = 3),
-                        bal_acc_ci = paste0("[", round(balanced_accuracy_ci_low, digits = 3), ", ", round(balanced_accuracy_ci_up, digits = 3), "]"),
-                        acc = round(accuracy, digits = 3),
-                        acc_ci = paste0("[", round(accuracy_ci_low, digits = 3), ", ", round(accuracy_ci_up, digits = 3), "]"))
-
-
-    colnames(result) = c("Thresholds",
-                         "Sensitivity",
-                         "Sensitivity CI",
-                         "Specificity",
-                         "Specificity CI",
-                         "Positive Predictive Value",
-                         "Positive Predictive Value CI",
-                         "Negative Predictive Value",
-                         "Negative Predictive Value CI",
-                         "Balanced Accuracy",
-                         "Balanced Accuracy CI",
-                         "Accuracy",
-                         "Accuracy CI")
-
-    result = result %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F)
+  if(!include_threholds){
+    result$Thresholds = NULL
   }
 
+  if(!include_true_positive){
+    result$`True Positive` = NULL
+  }
 
+  if(!include_true_negative){
+    result$`True Negative` = NULL
+  }
 
+  if(!include_false_positive){
+    result$`False Positive` = NULL
+  }
 
-  # if(!is.null(measures$performance_measurements_lower_bound$balanced_accuracy)){
-  #   result$bal_acc = result$bal_acc_ci = "-"
-  # }
-  #
-  # if(!is.null(measures$performance_measurements_lower_bound$accuracy)){
-  #   result$acc = result$acc_ci = "-"
-  # }
+  if(!include_false_negative){
+    result$`False Negative` = NULL
+  }
+
+  if(!include_sensitivity){
+    result$Sensitivity = NULL
+    result$`Sensitivity CI` = NULL
+  }
+
+  if(!include_specificity){
+    result$Specificity = NULL
+    result$`Specificity CI` = NULL
+  }
+
+  if(!include_positive_predictive_value){
+    result$`Positive Predictive Value` = NULL
+    result$`Positive Predictive Value CI` = NULL
+  }
+
+  if(!include_negative_predictive_value){
+    result$`Negative Predictive Value` = NULL
+    result$`Negative Predictive Value CI` = NULL
+  }
+
+  if(!include_balanced_accuracy){
+    result$`Balanced Accuracy` = NULL
+    result$`Balanced Accuracy CI` = NULL
+  }
+
+  if(!include_accuracy){
+    result$Accuracy = NULL
+    result$`Accuracy CI` = NULL
+  }
+
+  # result = result %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F)
 
   return(result)
 
+}
 
 
 
+from_measures_to_rmarkdown_table = function(measures = all_measures, caption = "Performance Measurements using Different Threshold",
+                                       include_threholds = TRUE,
+                                       include_true_positive = FALSE,
+                                       include_true_negative = FALSE,
+                                       include_false_positive = FALSE,
+                                       include_false_negative = FALSE,
+                                       include_sensitivity = TRUE,
+                                       include_specificity = TRUE,
+                                       include_positive_predictive_value = TRUE,
+                                       include_negative_predictive_value = TRUE,
+                                       include_balanced_accuracy = TRUE,
+                                       include_accuracy = TRUE){
+
+  result_df = from_measures_to_data_frame(measures, include_threholds, include_true_positive, include_true_negative, include_false_positive, include_false_negative, include_sensitivity, include_specificity, include_positive_predictive_value, include_negative_predictive_value, include_balanced_accuracy, include_accuracy)
+
+  result = result_df %>% kable(format='html',align="ccc", caption=caption) %>% kable_classic(full_width = F)
+
+  return(result)
 
 }
+
+
 
 
 from_any_table_to_rmarkdown = function(table, caption = ""){
@@ -1315,11 +1380,11 @@ from_measure_to_ROC_curve = function(measures = BED_PLANNING_training_measures, 
 
   pacman::p_load(ggplot2)
 
-  df = data.frame(x = 1-measures$performance_measures$spec,
-                  y = c(measures$performance_measures$sens,
-                        measures$performance_measurements_lower_bound$sens,
-                        measures$performance_measurements_upper_bound$sens),
-                  type = rep(c('values',"lower_bound","upper_bound"), each = length(measures$performance_measures$spec)))
+  df = data.frame(x = 1-c(0,measures$performance_measures$spec,1),
+                  y = c(1, measures$performance_measures$sens, 0,
+                        1, measures$performance_measurements_lower_bound$sens, 0,
+                        1, measures$performance_measurements_upper_bound$sens, 0),
+                  type = rep(c('values',"lower_bound","upper_bound"), each = length(measures$performance_measures$spec)+2))
   df$type = factor(df$type, levels = c('values',"lower_bound","upper_bound"))
 
   ggplot(data=df, aes(x=x, y=y, group = type)) +
@@ -1367,6 +1432,12 @@ from_measure_to_PR_curve = function(measures = BED_PLANNING_training_measures, t
 
 
 }
+
+
+
+
+
+
 
 
 
