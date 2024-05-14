@@ -1387,6 +1387,9 @@ from_measure_to_ROC_curve = function(measures = BED_PLANNING_training_measures, 
                   type = rep(c('values',"lower_bound","upper_bound"), each = length(measures$performance_measures$spec)+2))
   df$type = factor(df$type, levels = c('values',"lower_bound","upper_bound"))
 
+  df = df[nrow(df):1, ]
+
+  
   ggplot(data=df, aes(x=x, y=y, group = type)) +
     geom_line(aes(linetype = type))+
     geom_point(aes(size = type))+
